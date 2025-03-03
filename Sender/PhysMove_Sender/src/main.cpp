@@ -16,7 +16,9 @@ void sendCallback(uint8_t *mac, uint8_t status) {
 }
 
 void setup() {
+    //Serial.begin(115200, SERIAL_8N1, SerialMode::SERIAL_RX_ONLY);
     Serial.begin(115200);
+    //pinMode(LED_BUILTIN, OUTPUT);
     // delay(100);
     // EEPROM.begin(64);
     // for (int i = 0; i < 6; i++){
@@ -81,36 +83,43 @@ DataSet dataPacket[DATA_SETS];
 int currentIndex = 0; // Index to track data in the packet
 
 long lastSample = 0;
+bool lastLED = 0;
+long lastLEDToggleAt = 0;
 void loop() {
-    if (millis() - lastSample >= 3){ // a packet every 3ms
-      lastSample = millis();
-      // Collect sensor data
-      sensors_event_t accel, gyro, temp;
-      mpu.getEvent(&accel, &gyro, &temp);
+  if (millis() - lastSample >= 3){ // a packet every 3ms
+    lastSample = millis();
+    // Collect sensor data
+    sensors_event_t accel, gyro, temp;
+    mpu.getEvent(&accel, &gyro, &temp);
 
-      // Add data to the packet
-      dataPacket[currentIndex].accelX = accel.acceleration.x;
-      dataPacket[currentIndex].accelY = accel.acceleration.y;
-      dataPacket[currentIndex].accelZ = accel.acceleration.z;
-      dataPacket[currentIndex].gyroX = gyro.gyro.x;
-      dataPacket[currentIndex].gyroY = gyro.gyro.y;
-      dataPacket[currentIndex].gyroZ = gyro.gyro.z;
-      dataPacket[currentIndex].timestamp = millis();
-      if (isnan(accel.acceleration.x)
-      ||  isnan(accel.acceleration.y)
-      ||  isnan(accel.acceleration.z)
-      ||  isnan(gyro.gyro.x)
-      ||  isnan(gyro.gyro.y)
-      ||  isnan(gyro.gyro.z))
-      return;
-      currentIndex++;
+    // Add data to the packet
+    dataPacket[currentIndex].accelX = accel.acceleration.x;
+    dataPacket[currentIndex].accelY = accel.acceleration.y;
+    dataPacket[currentIndex].accelZ = accel.acceleration.z;
+    dataPacket[currentIndex].gyroX = gyro.gyro.x;
+    dataPacket[currentIndex].gyroY = gyro.gyro.y;
+    dataPacket[currentIndex].gyroZ = gyro.gyro.z;
+    dataPacket[currentIndex].timestamp = millis();
+    if (isnan(accel.acceleration.x)
+    ||  isnan(accel.acceleration.y)
+    ||  isnan(accel.acceleration.z)
+    ||  isnan(gyro.gyro.x)
+    ||  isnan(gyro.gyro.y)
+    ||  isnan(gyro.gyro.z))
+    return;
+    currentIndex++;
+  }
+  // Send packet when full
+  if (currentIndex == DATA_SETS) {
+    if(esp_now_send(NULL, (uint8_t *)dataPacket, sizeof(dataPacket)) == 0){
+      //Serial.println("Packet sent!");
     }
-    // Send packet when full
-    if (currentIndex == DATA_SETS) {
-      if(esp_now_send(NULL, (uint8_t *)dataPacket, sizeof(dataPacket)) == 0)
-        Serial.println("Packet sent!");
+    //else
+      //Serial.println("Packet NOT sent!");
+      
 
-        // Reset index
-        currentIndex = 0;
-    }
+    // Reset index
+    currentIndex = 0;
+      
+  }
 }
