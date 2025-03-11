@@ -1,6 +1,8 @@
 #include <WiFi.h>
 #include <esp_now.h>
 
+void PhysLoggerSetup();
+void PhysLoggerLoop();
 
 // Structure to match the sender's data structure
 struct DataSet {
@@ -164,7 +166,9 @@ void onDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
 }
 
 void setup() {
-    Serial.begin(115200);
+    Serial.begin(2000000);
+    PhysLoggerSetup();
+    return;
     Serial2.begin(115200);
     pinMode(LED_BUILTIN, OUTPUT);
     // Print MAC address of this ESP32
@@ -187,6 +191,8 @@ void setup() {
 }
 
 void loop() {
+    PhysLoggerLoop();
+    return;
     //if (millis() - lastDataPacketAt > 1000){
         Serial2.print("mac=");
         Serial2.print(WiFi.macAddress());
