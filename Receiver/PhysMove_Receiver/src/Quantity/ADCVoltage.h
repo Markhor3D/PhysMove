@@ -34,14 +34,71 @@ public:
     }
     void saveState(unsigned int& address)
     {}
-    ADCVoltage(int id) : ADCVoltage()
+    ADCVoltage(int id, uint16* pointerToRawADCValue, int GC1, int GC2) : ADCVoltage()
     {
+        this->pointerToRawADCValue = pointerToRawADCValue;
+        gainControlPin1 = GC1;
+        gainControlPin2 = GC2;
+        pinMode(GC1, OUTPUT);
+        pinMode(GC2, OUTPUT);
+        digitalWrite(GC1, HIGH);
+        digitalWrite(GC2, HIGH);
         ChannelID = id;
     }
 
     float makeValue() override
     {
-        return 0;
+        // we need to apply calibration here.
+        float toReturn = (float)((int16)(pointerToRawADCValue[0]) + calibC[activeGain]) * calibM[activeGain];
+
+        // auto range checking
+        if (autoGain) {
+            // analyze range for optimization
+            
+            float maxV = 10; 
+            for (int i = 1; i <= activeGain; i++)
+                maxV /= 10.0F;
+            float V = abs(toReturn);
+            if (V > maxV) // upper limit violation
+                samplesOutOfRange++;
+            else if (V < maxV / 10.0F) // lower limit vioaltion
+                samplesBelowRange++;
+            else
+                samplesInRange++;
+
+            if (millis() - lastAutoGainSet > 1000) {
+                // take a decision
+                float totalSamples = samplesOutOfRange + samplesInRange + samplesBelowRange;
+                float outOfRangeF = (float)samplesOutOfRange / totalSamples;
+                float inRangeF = (float)samplesInRange / totalSamples;
+                float belowRangeF = (float)samplesBelowRange / totalSamples;
+
+                if (outOfRangeF > 0.01F) // prefer to increase range even if a small fraction is out
+                {
+                    if (activeGain > 0) // if possible to increase the range
+                    {
+                        activeGain--;
+                        String sp = "sr";
+                        String gv = String(activeGain);
+                        setPropertyValue(sp, gv);
+                    }
+                }
+                else  if (belowRangeF > 0.95F) {
+                    activeGain++;
+                    String sp = "sr";
+                    String gv = String(activeGain);
+                    setPropertyValue(sp, gv);
+                }
+
+                // Reset cycle
+                lastAutoGainSet = millis();
+                samplesOutOfRange = 1;
+                samplesInRange = 1;
+                samplesBelowRange = 1;
+            }
+        }
+
+        return toReturn;
     }
     String getPropertyValue(String& property) override
     {
@@ -88,6 +145,8 @@ public:
             {
                 activeGain = value.toInt();
                 autoGain = false;
+                digitalWrite(gainControlPin1, ((activeGain == 0) || (activeGain == 2)) ? (hasDG444 ? HIGH : LOW) : (!hasDG444 ? HIGH : LOW));
+                digitalWrite(gainControlPin2, ((activeGain == 0) || (activeGain == 1)) ? (hasDG444 ? HIGH : LOW) : (!hasDG444 ? HIGH : LOW));
             }
             else
                 autoGain = true;
@@ -99,16 +158,33 @@ public:
             if (property.charAt(2) == 'm')
             {
                 calibM[property.charAt(3) - '0'] = value.toFloat();
+                uint16 address =
+                    EEP_ADCCalibDataBaseOffset +
+                    1 + // dg version
+                    EEP_ADCCalibDataIndividualSize * ChannelID +
+                    (property.charAt(3) - '0') * (2 + 1); // skip gain datasets
+                EEPROM2.PutFloat(address, value.toFloat());
             }
             else if (property.charAt(2) == 'c')
             {
                 calibC[property.charAt(3) - '0'] = (int16_t)value.toInt();
+
+                uint16 address =
+                    EEP_ADCCalibDataBaseOffset +
+                    1 + // dg version
+                    EEP_ADCCalibDataIndividualSize * ChannelID +
+                    (property.charAt(3) - '0') * (2 + 1) + // skip gain datasets
+                    2; // skip calibM
+                EEPROM2.PutInt16(address, calibC[property.charAt(3) - '0']);
             }
             return true;
         }
         else if (property == F("dg")) // dg version
         {
             hasDG444 = value == F("444");
+            uint16 address = EEP_ADCCalibDataBaseOffset;
+            uint8 dg = hasDG444;
+            EEPROM2.PutUint8(address, dg);
             return true;
         }
         else if (property == F("led")) {
@@ -120,11 +196,25 @@ public:
 
     void saveVariables(uint16& address) override
     {
+        uint8 sr = autoGain ? 3 : activeGain;
+        EEPROM2.PutUint8(address, sr);
     }
     void resumeVariables(uint16& address) override
     {
+        uint8 sr = activeGain;
+        EEPROM2.GetUint8(address, sr);
+        if (sr == 3) {
+            autoGain = true;
+            sr = 0; // will be reset soon
+        }
+        String n = F("sr");
+        String v(sr);
+        setPropertyValue(n, v);
     }
     void resetVariables() override
     {
+        String n = F("sr");
+        String v = F("0");
+        setPropertyValue(n, v);
     }
 };
